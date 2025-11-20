@@ -21,251 +21,243 @@ RTC_DS3231 rtc;
 
 // --- Variables ---
 int displayMode = 0; // 0=time, 1=temp, 2=humidity
+
 bool settingMode = false;
-bool setHourMode = true; // true = ตั้งชั่วโมง, false = ตั้งนาที
+bool setHourMode = true;
 int setHour = 0, setMinute = 0;
+
 bool blinkState = true;
 unsigned long lastBlink = 0;
 const unsigned long blinkInterval = 500;
 
-// INC button state
+// For long press INC
 bool incHeld = false;
 unsigned long incPressStart = 0;
 
-// --- Setup ---
+// Manual display switching
+unsigned long manualSwitchTime = 0;
+bool manualSwitched = false;  // If manual switch is active
+
+// =============================
+// SETUP
+// =============================
 void setup() {
   Serial.begin(115200);
   Serial.println("=== Starting Clock ===");
 
   // Display
   Display.init();
-  Display.set(BRIGHT_TYPICAL);
+  Display.set(7); // brightness 0–7
   Display.clearDisplay();
-  Serial.println("TM1637 initialized");
 
   // HDC1080
-  Wire.begin(21, 22); // SDA, SCL
+  Wire.begin(21, 22);
   hdc.begin(0x40);
-  Serial.println("HDC1080 initialized");
-
+  
   // RTC
   if (!rtc.begin()) {
     Serial.println("ERROR: RTC not found!");
     while (1);
-  } else {
-    Serial.println("RTC initialized");
   }
 
   // Buttons
   pinMode(BTN_SET, INPUT_PULLUP);
   pinMode(BTN_INC, INPUT_PULLUP);
-  Serial.println("Buttons initialized");
-
-  // Read initial RTC time
-  DateTime now = rtc.now();
-  setHour = now.hour();
-  setMinute = now.minute();
-  Serial.print("Initial time from RTC: ");
-  Serial.print(setHour);
-  Serial.print(":");
-  Serial.println(setMinute);
 }
 
-// --- Loop ---
+// =============================
+// MAIN LOOP
+// =============================
 void loop() {
-  unsigned long currentMillis = millis();
+  unsigned long nowMillis = millis();
 
+  // =========================
+  // NOT SETTING MODE
+  // =========================
   if (!settingMode) {
-    static unsigned long lastSwitch = 0;
+    static unsigned long lastAutoSwitch = 0;
 
-    switch(displayMode) {
-      case 0: // Time
-        if (currentMillis - lastSwitch >= 30000) { // 30 sec
-          displayMode = 1;
-          lastSwitch = currentMillis;
-          Serial.println("Switch display to Temperature");
-        }
-        displayTime();
-        break;
-      case 1: // Temperature
-        if (currentMillis - lastSwitch >= 15000) { // 15 sec
-          displayMode = 2;
-          lastSwitch = currentMillis;
-          Serial.println("Switch display to Humidity");
-        }
-        displayTemperature();
-        break;
-      case 2: // Humidity
-        if (currentMillis - lastSwitch >= 15000) { // 15 sec
-          displayMode = 0;
-          lastSwitch = currentMillis;
-          Serial.println("Switch display to Time");
-        }
-        displayHumidity();
-        break;
+    // Manual switch active for 5 sec
+    if (manualSwitched) {
+      if (nowMillis - manualSwitchTime >= 5000) {
+        manualSwitched = false;
+        lastAutoSwitch = nowMillis;
+        Serial.println("Manual switch expired → resume auto mode");
+      }
     }
+
+    // Auto rotate only when not manually switched
+    if (!manualSwitched) {
+      if (displayMode == 0 && nowMillis - lastAutoSwitch >= 30000) {
+        displayMode = 1;
+        lastAutoSwitch = nowMillis;
+      } else if (displayMode == 1 && nowMillis - lastAutoSwitch >= 15000) {
+        displayMode = 2;
+        lastAutoSwitch = nowMillis;
+      } else if (displayMode == 2 && nowMillis - lastAutoSwitch >= 15000) {
+        displayMode = 0;
+        lastAutoSwitch = nowMillis;
+      }
+    }
+
+    // Display current mode
+    if (displayMode == 0) displayTime();
+    else if (displayMode == 1) displayTemperature();
+    else displayHumidity();
   }
 
+  // Check buttons
   checkButtons();
-  delay(100);
+
+  delay(80);
 }
 
-// --- Display Functions ---
+// =============================
+// DISPLAY TIME
+// =============================
 void displayTime() {
   DateTime now = rtc.now();
   int hour = now.hour();
   int minute = now.minute();
 
-  // Sanitize
-  if (hour < 0 || hour > 23) hour = 0;
-  if (minute < 0 || minute > 59) minute = 0;
-
   Display.display(0, hour / 10);
   Display.display(1, hour % 10);
   Display.display(2, minute / 10);
   Display.display(3, minute % 10);
-  Display.point(POINT_ON);
 
-  Serial.print("Displaying Time: ");
-  Serial.print(hour);
-  Serial.print(":");
-  Serial.println(minute);
+  // Second even → dot on, odd → off
+  Display.point(now.second() % 2 == 0 ? POINT_ON : POINT_OFF);
 }
 
+// =============================
+// DISPLAY TEMPERATURE
+// =============================
 void displayTemperature() {
   float temp = hdc.readTemperature();
-  
-  // จำกัดค่า
-  if (temp < -9.9) temp = -9.9;   // เพราะมีแค่ 3 หลัก + จุด
+
+  if (temp < -9.9) temp = -9.9;
   if (temp > 99.9) temp = 99.9;
 
-  // ตัดทศนิยม 1 ตำแหน่ง
-  int t_int = (int)temp;                      
-  int t_dec = (int)((temp - t_int) * 10);     
+  int t_int = (int)temp;
+  int t_dec = abs((int)((temp - t_int) * 10));
 
-  if(t_dec < 0) t_dec = -t_dec; // กรณี negative
-
-  Display.display(0, 12);
-  
+  Display.display(0, 12);  // T
   Display.display(1, (t_int / 10) % 10);
   Display.display(2, t_int % 10);
   Display.display(3, t_dec);
-  Display.point(POINT_OFF);
 
-  Serial.print("Displaying Temperature: ");
-  Serial.print(temp, 1);
-  Serial.println(" °C");
+  Display.point(POINT_OFF);
 }
 
+// =============================
+// DISPLAY HUMIDITY
+// =============================
 void displayHumidity() {
   float hum = hdc.readHumidity();
 
-  // จำกัดค่า
   if (hum < 0.0) hum = 0.0;
   if (hum > 99.9) hum = 99.9;
 
-  int h_int = (int)hum;                 // ตัวเลขเต็ม
-  int h_dec = (int)((hum - h_int) * 10); // ตัวเลขทศนิยม
+  int h_int = (int)hum;
+  int h_dec = abs((int)((hum - h_int) * 10));
 
-  if (h_dec < 0) h_dec = -h_dec;        // ป้องกันค่าลบ
-
-  Display.display(0, 16);
+  Display.display(0, 16);  // H
   Display.display(1, h_int / 10);
   Display.display(2, h_int % 10);
   Display.display(3, h_dec);
+
   Display.point(POINT_OFF);
-
-  Serial.print("Displaying Humidity: ");
-  Serial.print(hum, 1);
-  Serial.println(" %");
 }
-
-
-// --- Button Functions ---
+// =============================
+// BUTTON HANDLING (ปรับใหม่)
+// =============================
 void checkButtons() {
-  unsigned long currentMillis = millis();
+  unsigned long nowMillis = millis();
 
-  // --- SET button ---
-  if (digitalRead(BTN_SET) == LOW) {
-    delay(200); // debounce
+  // =============================
+  // BTN_SET (13) → edge detect
+  // =============================
+  static bool lastSetState = HIGH;
+  bool setState = digitalRead(BTN_SET);
+
+  if (lastSetState == HIGH && setState == LOW) {
     if (!settingMode) {
-      // เริ่มตั้งค่า
       settingMode = true;
-      setHourMode = true;  // เริ่มด้วยชั่วโมง
+      setHourMode = true;
+
       DateTime now = rtc.now();
       setHour = now.hour();
       setMinute = now.minute();
-      lastBlink = currentMillis;
-      blinkState = true;
-      Serial.println("Entered SETTING mode, adjust Hour");
+      lastBlink = nowMillis;
+
+      Serial.println("ENTER setting mode");
     } else if (setHourMode) {
-      // เปลี่ยนไปตั้งนาที
       setHourMode = false;
-      Serial.println("Adjust Minute");
     } else {
-      // ออกจาก setting mode -> ปรับ RTC
       DateTime now = rtc.now();
       rtc.adjust(DateTime(now.year(), now.month(), now.day(), setHour, setMinute, 0));
+
       settingMode = false;
-      Serial.print("Exiting SETTING mode, Time set to: ");
-      Serial.print(setHour);
-      Serial.print(":");
-      Serial.println(setMinute);
+      Serial.println("EXIT setting mode → Time saved");
     }
-    delay(300); // debounce
+  }
+  lastSetState = setState;
+
+  // =============================
+  // BTN_INC (12) → auto increment
+  // =============================
+  static bool lastIncState = HIGH;
+  static unsigned long incLastTime = 0;
+  const unsigned long incInterval = 300; // กดค้างเพิ่มทุก 300ms
+
+  bool incState = digitalRead(BTN_INC);
+
+  if (incState == LOW) { // ปุ่มถูกกด
+    if (!settingMode) {
+      // manual switch display
+      if (lastIncState == HIGH) { // กดครั้งแรก
+        displayMode = (displayMode + 1) % 3;
+        manualSwitched = true;
+        manualSwitchTime = nowMillis;
+        Serial.print("Switch display to mode = ");
+        Serial.println(displayMode);
+      }
+    } else {
+      // กำหนดเวลา auto increment
+      if (lastIncState == HIGH || nowMillis - incLastTime >= incInterval) {
+        if (setHourMode) setHour = (setHour + 1) % 24;
+        else setMinute = (setMinute + 1) % 60;
+        incLastTime = nowMillis;
+      }
+    }
+  }
+  lastIncState = incState;
+
+  // =============================
+  // BLINK EFFECT
+  // =============================
+  if (settingMode && nowMillis - lastBlink >= blinkInterval) {
+    blinkState = !blinkState;
+    lastBlink = nowMillis;
   }
 
+  // =============================
+  // SHOW SETTING TIME
+  // =============================
   if (!settingMode) return;
 
-  // --- INC button ---
-  if (digitalRead(BTN_INC) == LOW) {
-    if (!incHeld) incPressStart = currentMillis;
-    incHeld = true;
-
-    if (currentMillis - incPressStart >= 500) { // long press
-      if (setHourMode) setHour = (setHour + 1) % 24;
-      else setMinute = (setMinute + 1) % 60;
-      incPressStart = currentMillis - 300;
-    } else { // short press
-      if (setHourMode) setHour = (setHour + 1) % 24;
-      else setMinute = (setMinute + 1) % 60;
-    }
-
-    Serial.print("INC button pressed, ");
-    if (setHourMode) Serial.print("Hour = "); else Serial.print("Minute = ");
-    Serial.println(setHourMode ? setHour : setMinute);
-
-  } else incHeld = false;
-
-  // --- Blink effect ---
-  if (currentMillis - lastBlink >= blinkInterval) {
-    blinkState = !blinkState;
-    lastBlink = currentMillis;
-  }
-
-  // --- Display setting time ---
   if (setHourMode) {
-    // ชั่วโมงกระพริบ
-    if (blinkState) {
-      Display.display(0, setHour / 10);
-      Display.display(1, setHour % 10);
-    } else {
-      Display.display(0, CHAR_BLANK);
-      Display.display(1, CHAR_BLANK);
-    }
+    Display.display(0, blinkState ? setHour / 10 : CHAR_BLANK);
+    Display.display(1, blinkState ? setHour % 10 : CHAR_BLANK);
     Display.display(2, setMinute / 10);
     Display.display(3, setMinute % 10);
   } else {
-    // นาที กระพริบ
     Display.display(0, setHour / 10);
     Display.display(1, setHour % 10);
-    if (blinkState) {
-      Display.display(2, setMinute / 10);
-      Display.display(3, setMinute % 10);
-    } else {
-      Display.display(2, CHAR_BLANK);
-      Display.display(3, CHAR_BLANK);
-    }
+    Display.display(2, blinkState ? setMinute / 10 : CHAR_BLANK);
+    Display.display(3, blinkState ? setMinute % 10 : CHAR_BLANK);
   }
+
   Display.point(POINT_ON);
 }
+
