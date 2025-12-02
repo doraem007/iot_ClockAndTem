@@ -47,7 +47,7 @@ void setup() {
 
   // Display
   Display.init();
-  Display.set(7); // brightness 0–7
+  Display.set(1); // brightness 0–7
   Display.clearDisplay();
 
   // HDC1080
