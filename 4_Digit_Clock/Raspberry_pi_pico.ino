@@ -22,8 +22,8 @@ RTC_DS3231 rtc;
 // =============================
 // BUTTONS (Pi Pico)
 // =============================
-#define BTN_INC 26
-#define BTN_SET 27
+#define BTN_INC 6
+#define BTN_SET 7
 
 // =============================
 // VARIABLES
