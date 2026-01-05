@@ -22,8 +22,8 @@ RTC_DS3231 rtc;
 // =============================
 // BUTTONS (Pi Pico)
 // =============================
-#define BTN_SET  14
-#define BTN_INC  15
+#define BTN_INC 26
+#define BTN_SET 27
 
 // =============================
 // VARIABLES
@@ -47,8 +47,8 @@ void setup() {
   Serial.begin(115200);
 
   // I2C for Pi Pico
-  Wire.setSDA(26);
-  Wire.setSCL(27);
+  Wire.setSDA(20);
+  Wire.setSCL(21);
   Wire.begin();
 
   // HT16K33
