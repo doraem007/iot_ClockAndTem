@@ -1,5 +1,10 @@
 | อุปกรณ์ | SDA  | SCL  | VCC | GND |
 | ------- | ---- | ---- | --- | --- |
-| HT16K33 | GP26 | GP27 | 3V3 | GND |
-| DS3231  | GP26 | GP27 | 3V3 | GND |
-| HDC1080 | GP26 | GP27 | 3V3 | GND |
+| HT16K33 | GP20 | GP21 | 3V3 | GND |
+| DS3231  | GP20 | GP21 | 3V3 | GND |
+| HDC1080 | GP20 | GP21 | 3V3 | GND |
+
+| ปุ่ม        | GPIO     |
+| ----------- | -------- |
+| **BTN_INC** | **GP26** |
+| **BTN_SET** | **GP27** |
