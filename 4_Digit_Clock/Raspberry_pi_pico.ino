@@ -47,8 +47,8 @@ void setup() {
   Serial.begin(115200);
 
   // I2C for Pi Pico
-  Wire.setSDA(0);
-  Wire.setSCL(1);
+  Wire.setSDA(26);
+  Wire.setSCL(27);
   Wire.begin();
 
   // HT16K33
