@@ -5,6 +5,12 @@
 #include <Adafruit_LEDBackpack.h>
 
 // =============================
+// I2C PINS (Pi Pico)
+// =============================
+#define I2C_SDA 20
+#define I2C_SCL 21
+
+// =============================
 // DISPLAY (HT16K33)
 // =============================
 Adafruit_7segment display = Adafruit_7segment();
@@ -46,21 +52,29 @@ bool manualSwitched = false;
 void setup() {
   Serial.begin(115200);
 
-  // I2C for Pi Pico
-  Wire.setSDA(20);
-  Wire.setSCL(21);
+  // =============================
+  // I2C (Pi Pico)
+  // =============================
+  Wire.setSDA(I2C_SDA);
+  Wire.setSCL(I2C_SCL);
   Wire.begin();
 
+  // =============================
   // HT16K33
-  display.begin(0x70);
+  // =============================
+  display.begin(0x70, &Wire);
   display.setBrightness(5);
   display.clear();
   display.writeDisplay();
 
+  // =============================
   // HDC1080
-  hdc.begin(0x40);
+  // =============================
+  hdc.begin(0x40, &Wire);
 
-  // RTC
+  // =============================
+  // RTC DS3231
+  // =============================
   rtc.begin();
 
   pinMode(BTN_SET, INPUT_PULLUP);
@@ -111,7 +125,6 @@ void displayTime() {
 
   int value = now.hour() * 100 + now.minute();
   display.print(value);
-
   display.drawColon(now.second() % 2 == 0);
   display.writeDisplay();
 }
@@ -125,7 +138,6 @@ void displayTemperature() {
 
   display.print(temp);
   display.drawColon(false);
-
   display.writeDigitNum(2, (temp / 10) % 10, true);
   display.writeDisplay();
 }
@@ -139,7 +151,6 @@ void displayHumidity() {
 
   display.print(hum);
   display.drawColon(false);
-
   display.writeDigitNum(2, (hum / 10) % 10, true);
   display.writeDisplay();
 }
