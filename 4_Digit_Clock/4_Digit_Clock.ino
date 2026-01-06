@@ -1,27 +1,40 @@
-#include <TM1637.h>
 #include <Wire.h>
 #include <RTClib.h>
 #include <ClosedCube_HDC1080.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_LEDBackpack.h>
 
-// --- Display Setup ---
-#define CLK 23
-#define DIO 17
-TM1637 Display(CLK, DIO);
-#define CHAR_BLANK 127
+// =============================
+// I2C PINS (Pi Pico)
+// =============================
+#define I2C_SDA 20
+#define I2C_SCL 21
 
-// --- HDC1080 ---
+// =============================
+// DISPLAY (HT16K33)
+// =============================
+Adafruit_7segment display = Adafruit_7segment();
+
+// =============================
+// HDC1080
+// =============================
 ClosedCube_HDC1080 hdc;
 
-// --- RTC ---
+// =============================
+// RTC
+// =============================
 RTC_DS3231 rtc;
 
-// --- Buttons ---
-#define BTN_SET  13
-#define BTN_INC  12
+// =============================
+// BUTTONS (Pi Pico)
+// =============================
+#define BTN_INC 6
+#define BTN_SET 7
 
-// --- Variables ---
+// =============================
+// VARIABLES
+// =============================
 int displayMode = 0; // 0=time, 1=temp, 2=humidity
-
 bool settingMode = false;
 bool setHourMode = true;
 int setHour = 0, setMinute = 0;
@@ -30,86 +43,80 @@ bool blinkState = true;
 unsigned long lastBlink = 0;
 const unsigned long blinkInterval = 500;
 
-// For long press INC
-bool incHeld = false;
-unsigned long incPressStart = 0;
-
-// Manual display switching
 unsigned long manualSwitchTime = 0;
-bool manualSwitched = false;  // If manual switch is active
+bool manualSwitched = false;
 
 // =============================
 // SETUP
 // =============================
 void setup() {
   Serial.begin(115200);
-  Serial.println("=== Starting Clock ===");
 
-  // Display
-  Display.init();
-  Display.set(1); // brightness 0–7
-  Display.clearDisplay();
+  // =============================
+  // I2C (Pi Pico)
+  // =============================
+  Wire.setSDA(I2C_SDA);
+  Wire.setSCL(I2C_SCL);
+  Wire.begin();
 
+  // =============================
+  // HT16K33
+  // =============================
+  display.begin(0x70, &Wire);
+  display.setBrightness(5);
+  display.clear();
+  display.writeDisplay();
+
+  // =============================
   // HDC1080
-  Wire.begin(21, 22);
+  // =============================
+  Wire.begin();
   hdc.begin(0x40);
-  
-  // RTC
-  if (!rtc.begin()) {
-    Serial.println("ERROR: RTC not found!");
-    while (1);
-  }
 
-  // Buttons
+
+  // =============================
+  // RTC DS3231
+  // =============================
+  rtc.begin();
+
   pinMode(BTN_SET, INPUT_PULLUP);
   pinMode(BTN_INC, INPUT_PULLUP);
 }
 
 // =============================
-// MAIN LOOP
+// LOOP
 // =============================
 void loop() {
   unsigned long nowMillis = millis();
 
-  // =========================
-  // NOT SETTING MODE
-  // =========================
   if (!settingMode) {
     static unsigned long lastAutoSwitch = 0;
 
-    // Manual switch active for 5 sec
-    if (manualSwitched) {
-      if (nowMillis - manualSwitchTime >= 5000) {
-        manualSwitched = false;
-        lastAutoSwitch = nowMillis;
-        Serial.println("Manual switch expired → resume auto mode");
-      }
+    if (manualSwitched && nowMillis - manualSwitchTime > 5000) {
+      manualSwitched = false;
+      lastAutoSwitch = nowMillis;
     }
 
-    // Auto rotate only when not manually switched
     if (!manualSwitched) {
-      if (displayMode == 0 && nowMillis - lastAutoSwitch >= 30000) {
+      if (displayMode == 0 && nowMillis - lastAutoSwitch > 30000) {
         displayMode = 1;
         lastAutoSwitch = nowMillis;
-      } else if (displayMode == 1 && nowMillis - lastAutoSwitch >= 15000) {
+      } else if (displayMode == 1 && nowMillis - lastAutoSwitch > 15000) {
         displayMode = 2;
         lastAutoSwitch = nowMillis;
-      } else if (displayMode == 2 && nowMillis - lastAutoSwitch >= 15000) {
+      } else if (displayMode == 2 && nowMillis - lastAutoSwitch > 15000) {
         displayMode = 0;
         lastAutoSwitch = nowMillis;
       }
     }
 
-    // Display current mode
     if (displayMode == 0) displayTime();
     else if (displayMode == 1) displayTemperature();
     else displayHumidity();
   }
 
-  // Check buttons
   checkButtons();
-
-  delay(80);
+  delay(50);
 }
 
 // =============================
@@ -117,60 +124,39 @@ void loop() {
 // =============================
 void displayTime() {
   DateTime now = rtc.now();
-  int hour = now.hour();
-  int minute = now.minute();
 
-  Display.display(0, hour / 10);
-  Display.display(1, hour % 10);
-  Display.display(2, minute / 10);
-  Display.display(3, minute % 10);
-
-  // Second even → dot on, odd → off
-  Display.point(now.second() % 2 == 0 ? POINT_ON : POINT_OFF);
+  display.clear();
+  display.print(now.hour() * 100 + now.minute(), DEC);
+  display.drawColon(now.second() % 2 == 0);
+  display.writeDisplay();
 }
+
 
 // =============================
 // DISPLAY TEMPERATURE
 // =============================
 void displayTemperature() {
-  float temp = hdc.readTemperature();
+  float t = hdc.readTemperature();
 
-  if (temp < -9.9) temp = -9.9;
-  if (temp > 99.9) temp = 99.9;
-
-  int t_int = (int)temp;
-  int t_dec = abs((int)((temp - t_int) * 10));
-
-  Display.display(0, 12);  // T
-  Display.display(1, (t_int / 10) % 10);
-  Display.display(2, t_int % 10);
-  Display.display(3, t_dec);
-
-  Display.point(POINT_OFF);
+  display.clear();
+  display.print(t, 1);        // แสดงทศนิยม 1 ตำแหน่ง
+  display.drawColon(false);
+  display.writeDisplay();
 }
+
 
 // =============================
 // DISPLAY HUMIDITY
 // =============================
 void displayHumidity() {
-  float hum = hdc.readHumidity();
+  float h = hdc.readHumidity();
 
-  if (hum < 0.0) hum = 0.0;
-  if (hum > 99.9) hum = 99.9;
-
-  int h_int = (int)hum;
-  int h_dec = abs((int)((hum - h_int) * 10));
-
-  Display.display(0, 16);  // H
-  Display.display(1, h_int / 10);
-  Display.display(2, h_int % 10);
-  Display.display(3, h_dec);
-
-  Display.point(POINT_OFF);
+  display.clear();
+  display.print(h, 1);        // เช่น 60.5
+  display.drawColon(false);
+  display.writeDisplay();
 }
-// =============================
-// BUTTON HANDLING (ปรับใหม่)
-// =============================
+
 void checkButtons() {
   unsigned long nowMillis = millis();
 
@@ -246,18 +232,26 @@ void checkButtons() {
   // =============================
   if (!settingMode) return;
 
-  if (setHourMode) {
-    Display.display(0, blinkState ? setHour / 10 : CHAR_BLANK);
-    Display.display(1, blinkState ? setHour % 10 : CHAR_BLANK);
-    Display.display(2, setMinute / 10);
-    Display.display(3, setMinute % 10);
-  } else {
-    Display.display(0, setHour / 10);
-    Display.display(1, setHour % 10);
-    Display.display(2, blinkState ? setMinute / 10 : CHAR_BLANK);
-    Display.display(3, blinkState ? setMinute % 10 : CHAR_BLANK);
-  }
+display.clear();
 
-  Display.point(POINT_ON);
+if (setHourMode) {
+  if (blinkState) {
+    display.writeDigitNum(0, setHour / 10);
+    display.writeDigitNum(1, setHour % 10);
+  }
+  display.writeDigitNum(3, setMinute / 10);
+  display.writeDigitNum(4, setMinute % 10);
+} else {
+  display.writeDigitNum(0, setHour / 10);
+  display.writeDigitNum(1, setHour % 10);
+  if (blinkState) {
+    display.writeDigitNum(3, setMinute / 10);
+    display.writeDigitNum(4, setMinute % 10);
+  }
 }
 
+display.drawColon(true);
+display.writeDisplay();
+
+
+}
