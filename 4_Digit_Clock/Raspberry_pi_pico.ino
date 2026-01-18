@@ -70,7 +70,9 @@ void setup() {
   // =============================
   // HDC1080
   // =============================
-  hdc.begin(0x40, &Wire);
+  Wire.begin();
+  hdc.begin(0x40);
+
 
   // =============================
   // RTC DS3231
@@ -123,34 +125,133 @@ void loop() {
 void displayTime() {
   DateTime now = rtc.now();
 
-  int value = now.hour() * 100 + now.minute();
-  display.print(value);
+  display.clear();
+  display.print(now.hour() * 100 + now.minute(), DEC);
   display.drawColon(now.second() % 2 == 0);
   display.writeDisplay();
 }
+
 
 // =============================
 // DISPLAY TEMPERATURE
 // =============================
 void displayTemperature() {
   float t = hdc.readTemperature();
-  int temp = (int)(t * 10);
 
-  display.print(temp);
+  display.clear();
+  display.print(t, 1);        // แสดงทศนิยม 1 ตำแหน่ง
   display.drawColon(false);
-  display.writeDigitNum(2, (temp / 10) % 10, true);
   display.writeDisplay();
 }
+
 
 // =============================
 // DISPLAY HUMIDITY
 // =============================
 void displayHumidity() {
   float h = hdc.readHumidity();
-  int hum = (int)(h * 10);
 
-  display.print(hum);
+  display.clear();
+  display.print(h, 1);        // เช่น 60.5
   display.drawColon(false);
-  display.writeDigitNum(2, (hum / 10) % 10, true);
   display.writeDisplay();
+}
+
+void checkButtons() {
+  unsigned long nowMillis = millis();
+
+  // =============================
+  // BTN_SET (13) → edge detect
+  // =============================
+  static bool lastSetState = HIGH;
+  bool setState = digitalRead(BTN_SET);
+
+  if (lastSetState == HIGH && setState == LOW) {
+    if (!settingMode) {
+      settingMode = true;
+      setHourMode = true;
+
+      DateTime now = rtc.now();
+      setHour = now.hour();
+      setMinute = now.minute();
+      lastBlink = nowMillis;
+
+      Serial.println("ENTER setting mode");
+    } else if (setHourMode) {
+      setHourMode = false;
+    } else {
+      DateTime now = rtc.now();
+      rtc.adjust(DateTime(now.year(), now.month(), now.day(), setHour, setMinute, 0));
+
+      settingMode = false;
+      Serial.println("EXIT setting mode → Time saved");
+    }
+  }
+  lastSetState = setState;
+
+  // =============================
+  // BTN_INC (12) → auto increment
+  // =============================
+  static bool lastIncState = HIGH;
+  static unsigned long incLastTime = 0;
+  const unsigned long incInterval = 300; // กดค้างเพิ่มทุก 300ms
+
+  bool incState = digitalRead(BTN_INC);
+
+  if (incState == LOW) { // ปุ่มถูกกด
+    if (!settingMode) {
+      // manual switch display
+      if (lastIncState == HIGH) { // กดครั้งแรก
+        displayMode = (displayMode + 1) % 3;
+        manualSwitched = true;
+        manualSwitchTime = nowMillis;
+        Serial.print("Switch display to mode = ");
+        Serial.println(displayMode);
+      }
+    } else {
+      // กำหนดเวลา auto increment
+      if (lastIncState == HIGH || nowMillis - incLastTime >= incInterval) {
+        if (setHourMode) setHour = (setHour + 1) % 24;
+        else setMinute = (setMinute + 1) % 60;
+        incLastTime = nowMillis;
+      }
+    }
+  }
+  lastIncState = incState;
+
+  // =============================
+  // BLINK EFFECT
+  // =============================
+  if (settingMode && nowMillis - lastBlink >= blinkInterval) {
+    blinkState = !blinkState;
+    lastBlink = nowMillis;
+  }
+
+  // =============================
+  // SHOW SETTING TIME
+  // =============================
+  if (!settingMode) return;
+
+display.clear();
+
+if (setHourMode) {
+  if (blinkState) {
+    display.writeDigitNum(0, setHour / 10);
+    display.writeDigitNum(1, setHour % 10);
+  }
+  display.writeDigitNum(3, setMinute / 10);
+  display.writeDigitNum(4, setMinute % 10);
+} else {
+  display.writeDigitNum(0, setHour / 10);
+  display.writeDigitNum(1, setHour % 10);
+  if (blinkState) {
+    display.writeDigitNum(3, setMinute / 10);
+    display.writeDigitNum(4, setMinute % 10);
+  }
+}
+
+display.drawColon(true);
+display.writeDisplay();
+
+
 }
