@@ -26,6 +26,12 @@ ClosedCube_HDC1080 hdc;
 RTC_DS3231 rtc;
 
 // =============================
+// Bitmask (Alpha)
+// =============================
+#define SEG_C  (0x01 | 0x08 | 0x10 | 0x20) // 0x39
+#define SEG_H  (0x02 | 0x04 | 0x10 | 0x20 | 0x40) // 0x76
+
+// =============================
 // BUTTONS (Pi Pico)
 // =============================
 #define BTN_INC 6
@@ -45,6 +51,13 @@ const unsigned long blinkInterval = 500;
 
 unsigned long manualSwitchTime = 0;
 bool manualSwitched = false;
+
+unsigned long lastSensorRead = 0;
+const unsigned long sensorInterval = 2000; // อ่านทุก 2 วินาที
+
+float tempCache = 0.0;
+float humCache  = 0.0;
+
 
 // =============================
 // SETUP
@@ -71,7 +84,9 @@ void setup() {
   // HDC1080
   // =============================
   Wire.begin();
+  Wire.setClock(400000);
   hdc.begin(0x40);
+  
 
 
   // =============================
@@ -125,21 +140,37 @@ void loop() {
 void displayTime() {
   DateTime now = rtc.now();
 
+  int h = now.hour();
+  int m = now.minute();
+
   display.clear();
-  display.print(now.hour() * 100 + now.minute(), DEC);
+
+  // ชั่วโมง
+  display.writeDigitNum(0, h / 10);   // 0 หรือ 1 หรือ 2
+  display.writeDigitNum(1, h % 10);   // หลักหน่วย
+
+  // นาที
+  display.writeDigitNum(3, m / 10);   // 0–5
+  display.writeDigitNum(4, m % 10);   // 0–9
+
   display.drawColon(now.second() % 2 == 0);
   display.writeDisplay();
 }
-
 
 // =============================
 // DISPLAY TEMPERATURE
 // =============================
 void displayTemperature() {
-  float t = hdc.readTemperature();
+  updateHDC1080();
+
+  int t = (int)(tempCache * 10);
 
   display.clear();
-  display.print(t, 1);        // แสดงทศนิยม 1 ตำแหน่ง
+  display.writeDigitRaw(0, SEG_C);
+  display.writeDigitNum(1, (t / 100) % 10); 
+  display.writeDigitNum(3, (t / 10) % 10);  
+  display.writeDigitNum(4, t % 10);         
+  display.writeDigitRaw(3, display.displaybuffer[3] | 0x80);
   display.drawColon(false);
   display.writeDisplay();
 }
@@ -149,13 +180,41 @@ void displayTemperature() {
 // DISPLAY HUMIDITY
 // =============================
 void displayHumidity() {
-  float h = hdc.readHumidity();
+  updateHDC1080();
+
+  int h = (int)(humCache * 10);
 
   display.clear();
-  display.print(h, 1);        // เช่น 60.5
+  display.writeDigitRaw(0, SEG_H);
+  display.writeDigitNum(1, (h / 100) % 10);
+  display.writeDigitNum(3, (h / 10) % 10);
+  display.writeDigitNum(4, h % 10);
+  display.writeDigitRaw(3, display.displaybuffer[3] | 0x80);
   display.drawColon(false);
   display.writeDisplay();
 }
+
+
+void updateHDC1080() {
+  if (millis() - lastSensorRead < sensorInterval) return;
+
+  tempCache = hdc.readTemperature();
+  humCache  = hdc.readHumidity();
+
+  // clamp ค่า RH กันเพี้ยน
+  if (humCache < 0) humCache = 0;
+  if (humCache > 100) humCache = 100;
+
+  lastSensorRead = millis();
+
+  // debug
+  Serial.print("HDC1080 -> T=");
+  Serial.print(tempCache);
+  Serial.print(" C, RH=");
+  Serial.print(humCache);
+  Serial.println(" %");
+}
+
 
 void checkButtons() {
   unsigned long nowMillis = millis();
