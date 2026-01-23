@@ -1,15 +1,9 @@
 # iot_ClockAndTem
 
 # segment pin
-   --a--
-  |     |
-  f     b
-  |     |
-   --g--
-  |     |
-  e     c
-  |     |
-   --d--   • dp
+
+<img width="2560" height="1434" alt="image" src="https://github.com/user-attachments/assets/6b13c61a-b55d-4b4a-a08d-72e87c6e9d3d" />
+
 
 
 # segment bitmask
